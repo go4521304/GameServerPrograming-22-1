@@ -6,7 +6,7 @@ using namespace std;
 #pragma comment (lib, "WS2_32.LIB")
 
 const char* SERVER_ADDR = "127.0.0.1";
-const short SERVER_PORT = 6000;
+const short SERVER_PORT = 4000;
 const int BUFSIZE = 256;
 
 char recv_buf[BUFSIZE];
@@ -102,7 +102,18 @@ void do_recv(SOCKET s_socket)
 
 void CALLBACK recv_callback(DWORD err, DWORD num_bytes, LPWSAOVERLAPPED lp_over, DWORD s_flag)
 {
-	cout << "Server Sent [" << num_bytes << "bytes] : " << recv_buf << endl;
+	char* m_start = recv_buf;
+	while (true) {
+		int message_size = m_start[0];
+		int from_client = m_start[1];
+		cout << "Client [" << from_client << "] ";
+		cout << "Sent[" << message_size << "bytes] : ";
+		cout << m_start + 2 << endl;
+
+		num_bytes -= message_size;
+		if (0 >= num_bytes) break;
+		m_start += message_size;
+	}
 	delete lp_over;
 	do_recv(s_socket);
 	do_send();
