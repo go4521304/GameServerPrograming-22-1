@@ -1,15 +1,24 @@
 #include <iostream>
 #include <thread>
+#include <vector>
 using namespace std;
 
-void thread_func()
+constexpr int NUM_THREADS = 10;
+
+void thread_func(int th_id)
 {
-	cout << "I am a Thread.\n";
+	cout << "I am a Thread " << th_id << ".\n";
 }
 
 int main()
 {
-	thread t1{ thread_func };
-	cout << "Hello World\n";
-	t1.join();	// main 함수는 스레드가 종료될 때까지 대기를 하고 종료를 해야한다.
+	vector<thread> threads;
+	for (int i = 0; i < NUM_THREADS; ++i)
+		threads.emplace_back(thread_func, i);
+
+	cout << "Hello World from main\n";
+
+	for (auto& th : threads)
+		th.join();
+
 }
