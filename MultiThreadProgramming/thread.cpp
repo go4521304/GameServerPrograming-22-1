@@ -15,7 +15,7 @@ struct NUM {
 	alignas(64) volatile int sum;
 };
 
-volatile NUM t_sum[16*16];
+volatile NUM t_sum[16];
 mutex my_lock;
 
 void thread_func(int th_id, int num_threads)
