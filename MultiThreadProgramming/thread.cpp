@@ -10,7 +10,7 @@ constexpr int NUM_THREADS = 4;
 constexpr int LOOP = 500000000;
 
 volatile int sum;
-volatile int t_sum[16];
+volatile int t_sum[16*16];
 mutex my_lock;
 
 void thread_func(int th_id, int num_threads)
@@ -18,11 +18,11 @@ void thread_func(int th_id, int num_threads)
 	volatile int local_sum = 0;
 	for (int i = 0; i < LOOP / num_threads; ++i)
 	{
-		t_sum[th_id] = t_sum[th_id] + 2;
+		t_sum[th_id*16] = t_sum[th_id*16] + 2;
 		//local_sum = local_sum + 2;
 	}
 	my_lock.lock();
-	sum = sum + t_sum[th_id];
+	sum = sum + t_sum[th_id*16];
 	my_lock.unlock();
 }
 
