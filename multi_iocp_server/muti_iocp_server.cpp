@@ -53,10 +53,13 @@ public:
 	}
 };
 
+enum SESSION_STATE {ST_FREE, ST_ACCEPTED, ST_INGAME};
+
 class SESSION {
 	OVER_EXP _recv_over;
 public:
-	bool in_use;
+	mutex _sl;	// session state 를 사용할 때 락을 검
+	SESSION_STATE _s_state;
 	int _id;
 	SOCKET _socket;
 	short x, y;
@@ -67,11 +70,11 @@ public:
 public:
 	SESSION()
 	{
-		in_use = false;
 		_id = -1;
 		_socket = 0;
 		x = y = 0;
 		_name[0] = 0;
+		_s_state = ST_FREE;
 		_prev_remain = 0;
 	}
 	~SESSION() {}
@@ -132,8 +135,16 @@ void SESSION::send_move_packet(int c_id)
 int get_new_client_id()
 {
 	for (int i = 0; i < MAX_USER; ++i)
-		if (clients[i].in_use == false)
+	{
+		clients[i]._sl.lock();
+		if (clients[i]._s_state == ST_FREE)
+		{
+			clients[i]._s_state = ST_ACCEPTED;
+			clients[i]._sl.unlock();
 			return i;
+		}
+		clients[i]._sl.unlock();
+	}
 	return -1;
 }
 
@@ -146,9 +157,12 @@ void process_packet(int c_id, char* packet)
 		CS_LOGIN_PACKET* p = reinterpret_cast<CS_LOGIN_PACKET*>(packet);
 		strcpy_s(clients[c_id]._name, p->name);
 		clients[c_id].send_login_info_packet();
+
+		clients[c_id]._s_state = ST_INGAME;
+
 		for (auto& pl : clients)
 		{
-			if (pl.in_use == false) continue;
+			if (pl._s_state != ST_INGAME) continue;
 			if (pl._id == c_id) continue;
 			SC_ADD_PLAYER_PACKET add_packet;
 			add_packet.id = c_id;
@@ -162,7 +176,7 @@ void process_packet(int c_id, char* packet)
 
 		for (auto& pl : clients)
 		{
-			if (pl.in_use == false) continue;
+			if (pl._s_state != ST_INGAME) continue;
 			if (pl._id == c_id) continue;
 			SC_ADD_PLAYER_PACKET add_packet;
 			add_packet.id = pl._id;
@@ -247,7 +261,6 @@ void do_worker()
 			int client_id = get_new_client_id();
 			if (client_id != -1)
 			{
-				clients[client_id].in_use = true;
 				clients[client_id].x = 0;
 				clients[client_id].y = 0;
 				clients[client_id]._id = client_id;
