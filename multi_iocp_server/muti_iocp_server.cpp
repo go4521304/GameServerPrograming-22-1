@@ -53,7 +53,9 @@ public:
 	}
 };
 
-enum SESSION_STATE {ST_FREE, ST_ACCEPTED, ST_INGAME};
+enum SESSION_STATE { ST_FREE, ST_ACCEPTED, ST_INGAME };
+
+void disconnect(int c_id);
 
 class SESSION {
 	OVER_EXP _recv_over;
@@ -155,15 +157,33 @@ void process_packet(int c_id, char* packet)
 	case CS_LOGIN:
 	{
 		CS_LOGIN_PACKET* p = reinterpret_cast<CS_LOGIN_PACKET*>(packet);
+		clients[c_id]._sl.lock();
+		if (clients[c_id]._s_state == ST_FREE)
+		{
+			clients[c_id]._sl.unlock();
+			break;
+		}
+		if (clients[c_id]._s_state == ST_INGAME)
+		{
+			clients[c_id]._sl.unlock();
+			disconnect(c_id);
+			break;
+		}
 		strcpy_s(clients[c_id]._name, p->name);
 		clients[c_id].send_login_info_packet();
 
 		clients[c_id]._s_state = ST_INGAME;
+		clients[c_id]._sl.unlock();
 
 		for (auto& pl : clients)
 		{
-			if (pl._s_state != ST_INGAME) continue;
 			if (pl._id == c_id) continue;
+			pl._sl.lock();
+			if (pl._s_state != ST_INGAME)
+			{
+				pl._sl.unlock();
+				continue;
+			}
 			SC_ADD_PLAYER_PACKET add_packet;
 			add_packet.id = c_id;
 			strcpy_s(add_packet.name, p->name);
@@ -172,12 +192,14 @@ void process_packet(int c_id, char* packet)
 			add_packet.x = clients[c_id].x;
 			add_packet.y = clients[c_id].y;
 			pl.do_send(&add_packet);
+			pl._sl.unlock();
 		}
 
 		for (auto& pl : clients)
 		{
-			if (pl._s_state != ST_INGAME) continue;
 			if (pl._id == c_id) continue;
+			lock_guard<mutex> aa {pl._sl};	// 락 가드가 속해 있는 블럭에서 빠져 나갈 떄 언락을 하고 빠져나감
+			if (pl._s_state != ST_INGAME) continue;
 			SC_ADD_PLAYER_PACKET add_packet;
 			add_packet.id = pl._id;
 			strcpy_s(add_packet.name, pl._name);
@@ -209,7 +231,8 @@ void process_packet(int c_id, char* packet)
 		clients[c_id].y = y;
 		for (auto& pl : clients)
 		{
-			if (true == pl.in_use)
+			lock_guard<mutex> aa{ pl._sl };
+			if (ST_INGAME == pl._s_state)
 				pl.send_move_packet(c_id);
 		}
 		break;
@@ -219,18 +242,31 @@ void process_packet(int c_id, char* packet)
 
 void disconnect(int c_id)
 {
+	clients[c_id]._sl.lock();
+	if (clients[c_id]._s_state == ST_FREE)
+	{
+		clients[c_id]._sl.unlock();
+		return;
+	}
+	closesocket(clients[c_id]._socket);
+	clients[c_id]._s_state = ST_FREE;
+	clients[c_id]._sl.unlock();
+
 	for (auto& pl : clients)
 	{
-		if (pl.in_use == false) continue;
 		if (pl._id == c_id) continue;
+		pl._sl.lock();
+		if (pl._s_state != ST_INGAME) {
+			pl._sl.unlock();
+			continue;
+		}
 		SC_REMOVE_PLAYER_PACKET p;
 		p.id = c_id;
 		p.size = sizeof(p);
 		p.type = SC_REMOVE_PLAYER;
 		pl.do_send(&p);
+		pl._sl.unlock();
 	}
-	closesocket(clients[c_id]._socket);
-	clients[c_id].in_use = false;
 }
 
 void do_worker()
@@ -285,6 +321,8 @@ void do_worker()
 
 		case OP_RECV:
 		{
+			if (0 == num_bytes) disconnect(key);
+
 			int remain_date = num_bytes + clients[key]._prev_remain;	// 지난번에 처리하고 남은 패킷의 사이즈를 더함
 			char* p = ex_over->_send_buf;
 			while (remain_date > 0)
@@ -309,6 +347,7 @@ void do_worker()
 
 		case OP_SEND:
 		{
+			if (0 == num_bytes) disconnect(key);
 			delete ex_over;
 			break;
 		}
@@ -341,7 +380,7 @@ int main()
 	AcceptEx(g_s_socket, c_socket, a_over._send_buf, 0, addr_size + 16, addr_size + 16, 0, &a_over._over);
 
 	vector<thread> worker_threads;
-	for (int i = 0; i<6; ++i)
+	for (int i = 0; i < 6; ++i)
 	{
 		worker_threads.emplace_back(do_worker);
 	}
@@ -350,7 +389,7 @@ int main()
 		th.join();
 	}
 
-	
+
 	closesocket(g_s_socket);
 	WSACleanup();
 }
