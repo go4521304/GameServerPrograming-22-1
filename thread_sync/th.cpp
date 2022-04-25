@@ -3,8 +3,8 @@
 
 using namespace std;
 
-int g_data = 0;
-bool ready = false;
+volatile int g_data = 0;
+volatile bool ready = false;
 
 void Reciver()
 {
