@@ -5,7 +5,7 @@ using namespace std;
 
 volatile bool done = false;
 volatile int a = 0;
-volatile int* b = &a;
+volatile int* b;
 int error;
 
 volatile int g_data = 0;
@@ -25,12 +25,25 @@ void t2()
 	{
 		int v = *b;
 		if (v != 0 && v != -1)
+		{
+			cout << hex << v << ", ";
 			error++;
+		}
 	}
 }
 
 int main()
 {
+	int arr[32];
+	b = &arr[30];
+
+	long long addr = (long long)b;
+	addr = (addr / 64) * 64;
+	addr = addr - 1;
+
+	b = (int*)addr;
+
+	*b = 0;
 	thread th1{ t1 };
 	thread th2{ t2 };
 
