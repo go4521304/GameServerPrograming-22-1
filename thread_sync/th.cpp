@@ -3,28 +3,38 @@
 
 using namespace std;
 
+volatile bool done = false;
+volatile int a = 0;
+volatile int* b = &a;
+int error;
+
 volatile int g_data = 0;
 volatile bool ready = false;
 
-void Reciver()
+void t1()
 {
-	while (false == ready);
-	int my_data = g_data;
-	cout << "Result = " << my_data << endl;
+	for (int i = 0; i < 2500000; ++i)
+		*b = -(1 + *b);
+	done = true;
 }
 
 
-void Sender()
+void t2()
 {
-	g_data = 999;
-	ready = true;
+	while (false == done)
+	{
+		int v = *b;
+		if (v != 0 && v != -1)
+			error++;
+	}
 }
 
 int main()
 {
-	thread t1{ Reciver };
-	thread t2{ Sender };
+	thread th1{ t1 };
+	thread th2{ t2 };
 
-	t1.join();
-	t2.join();
+	th1.join();
+	th2.join();
+	printf("Number of Error = %d", error);
 }

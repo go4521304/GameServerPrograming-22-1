@@ -1,4 +1,4 @@
-#include <iostream>
+﻿#include <iostream>
 #include <thread>
 #include <vector>
 #include <chrono>
@@ -18,22 +18,37 @@ struct NUM {
 volatile NUM t_sum[16];
 mutex my_lock;
 
+volatile int victim = 0;
+volatile bool flags[2] = { false, false };
+
+void p_lock(int th_id)
+{
+	int other = 1 - th_id;
+	flags[th_id] = true;
+	victim = th_id;
+	atomic_thread_fence(memory_order_seq_cst);
+	while ((flags[other] == true) && (victim == th_id));
+}
+
+void p_unlock(int th_id)
+{
+	flags[th_id] = false;
+}
+
 void thread_func(int th_id, int num_threads)
 {
-	volatile int local_sum = 0;
 	for (int i = 0; i < LOOP / num_threads; ++i)
 	{
-		t_sum[th_id].sum = t_sum[th_id].sum + 2;
+		p_lock(th_id);
+		sum = sum + 2;
+		p_unlock(th_id);
 	}
-	my_lock.lock();
-	sum = sum + t_sum[th_id].sum;
-	my_lock.unlock();
 }
 
 
 int main()
 {
-	for (int num = 1; num <= 16; num *= 2)
+	for (int num = 2; num <= 2; num *= 2)
 	{
 		sum = 0;
 		for (auto& s : t_sum) s.sum = 0;
