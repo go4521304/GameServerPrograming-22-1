@@ -3,13 +3,14 @@
 #include <vector>
 #include <chrono>
 #include <mutex>
+#include <atomic>
 using namespace std;
 using namespace std::chrono;
 
 constexpr int NUM_THREADS = 4;
 constexpr int LOOP = 500000000;
 
-volatile int sum;
+atomic<int> sum;
 
 struct NUM {
 	alignas(64) volatile int sum;
@@ -18,8 +19,8 @@ struct NUM {
 volatile NUM t_sum[16];
 mutex my_lock;
 
-volatile int victim = 0;
-volatile bool flags[2] = { false, false };
+atomic<int> victim = 0;
+atomic<bool> flags[2] = { false, false };
 
 void p_lock(int th_id)
 {
@@ -40,8 +41,10 @@ void thread_func(int th_id, int num_threads)
 	for (int i = 0; i < LOOP / num_threads; ++i)
 	{
 		p_lock(th_id);
-		sum = sum + 2;
+		//my_lock.lock();
+		sum += 2;
 		p_unlock(th_id);
+		//my_lock.unlock();
 	}
 }
 
