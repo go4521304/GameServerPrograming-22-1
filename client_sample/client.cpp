@@ -20,7 +20,6 @@ using namespace std;
 #pragma comment (lib, "ws2_32.lib")
 
 #include "..\multi_iocp_server\protocol.h"
-
 sf::TcpSocket socket;
 
 constexpr auto SCREEN_WIDTH = 9;
@@ -29,7 +28,6 @@ constexpr auto SCREEN_HEIGHT = 9;
 constexpr auto TILE_WIDTH = 65;
 constexpr auto WINDOW_WIDTH = TILE_WIDTH * SCREEN_WIDTH + 10;   // size of window
 constexpr auto WINDOW_HEIGHT = TILE_WIDTH * SCREEN_WIDTH + 10;
-constexpr auto MAX_USER = 10;
 
 int g_left_x;
 int g_top_y;
@@ -118,24 +116,23 @@ void ProcessPacket(char* ptr)
 	{
 	case SC_LOGIN_INFO:
 	{
-		SC_LOGIN_INFO_PACKET * packet = reinterpret_cast<SC_LOGIN_INFO_PACKET*>(ptr);
+		SC_LOGIN_INFO_PACKET* packet = reinterpret_cast<SC_LOGIN_INFO_PACKET*>(ptr);
 		g_myid = packet->id;
 		avatar.m_x = packet->x;
 		avatar.m_y = packet->y;
+
+		g_left_x = packet->x - 4;
+		g_top_y = packet->y - 4;
+		avatar.show();
+		break;
 	}
 
 	case SC_ADD_PLAYER:
 	{
-		SC_ADD_PLAYER_PACKET * my_packet = reinterpret_cast<SC_ADD_PLAYER_PACKET*>(ptr);
+		SC_ADD_PLAYER_PACKET* my_packet = reinterpret_cast<SC_ADD_PLAYER_PACKET*>(ptr);
 		int id = my_packet->id;
 
-		if (id == g_myid) {
-			avatar.move(my_packet->x, my_packet->y);
-			//g_left_x = my_packet->x - 4;
-			//g_top_y = my_packet->y - 4;
-			avatar.show();
-		}
-		else if (id < MAX_USER) {
+		if (id < MAX_USER) {
 			players[id].move(my_packet->x, my_packet->y);
 			players[id].show();
 		}
@@ -152,8 +149,8 @@ void ProcessPacket(char* ptr)
 		int other_id = my_packet->id;
 		if (other_id == g_myid) {
 			avatar.move(my_packet->x, my_packet->y);
-			//g_left_x = my_packet->x - 4;
-			//g_top_y = my_packet->y - 4;
+			g_left_x = my_packet->x - 4;
+			g_top_y = my_packet->y - 4;
 		}
 		else if (other_id < MAX_USER) {
 			players[other_id].move(my_packet->x, my_packet->y);
@@ -244,9 +241,9 @@ void client_main()
 	for (auto& pl : players) pl.draw();
 }
 
-void send_packet(void *packet)
+void send_packet(void* packet)
 {
-	unsigned char *p = reinterpret_cast<unsigned char *>(packet);
+	unsigned char* p = reinterpret_cast<unsigned char*>(packet);
 	size_t sent = 0;
 	socket.send(packet, p[0], sent);
 }
