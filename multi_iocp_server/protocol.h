@@ -6,7 +6,7 @@ constexpr int BUF_SIZE = 200;
 constexpr int W_WIDTH = 400;
 constexpr int W_HEIGHT = 400;
 
-constexpr int MAX_USER = 2000;
+constexpr int MAX_USER = 100000;
 
 // Packet ID
 constexpr char CS_LOGIN = 0;

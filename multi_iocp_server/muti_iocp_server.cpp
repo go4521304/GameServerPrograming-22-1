@@ -6,11 +6,14 @@
 #include <thread>
 #include <vector>
 #include <mutex>
+#include <unordered_set>
 #include "protocol.h"
 
 #pragma comment(lib, "WS2_32.lib")
 #pragma comment(lib, "MSWSock.lib")
 using namespace std;
+
+constexpr int RANGE = 5;
 
 enum COMP_TYPE { OP_ACCEPT, OP_RECV, OP_SEND };
 class OVER_EXP {
@@ -48,6 +51,9 @@ public:
 	SOCKET _socket;
 	short	x, y;
 	char	_name[NAME_SIZE];
+	unordered_set<int> view_list;
+	mutex vl;
+
 	int		_prev_remain;
 public:
 	SESSION()
@@ -88,11 +94,20 @@ public:
 		do_send(&p);
 	}
 	void send_move_packet(int c_id, int client_time);
+
+	void add_player_packet(int c_id);
+	void remove_player_packet(int c_id);
 };
 
 array<SESSION, MAX_USER> clients;
 HANDLE g_h_iocp;
 SOCKET g_s_socket;
+
+
+int distance(int a, int b)
+{
+	return abs(clients[a].x - clients[b].x) + abs(clients[a].y - clients[b].y);
+}
 
 void SESSION::send_move_packet(int c_id, int client_time)
 {
@@ -103,6 +118,28 @@ void SESSION::send_move_packet(int c_id, int client_time)
 	p.x = clients[c_id].x;
 	p.y = clients[c_id].y;
 	p.client_time = client_time;
+	do_send(&p);
+}
+
+void SESSION::add_player_packet(int c_id)
+{
+	SC_ADD_PLAYER_PACKET p;
+	p.id = c_id;
+	p.size = sizeof(SC_ADD_PLAYER_PACKET);
+	p.type = SC_ADD_PLAYER;
+	strcpy_s(p.name, clients[c_id]._name);
+	p.x = clients[c_id].x;
+	p.y = clients[c_id].y;
+	do_send(&p);
+}
+
+void SESSION::remove_player_packet(int c_id)
+{
+	SC_REMOVE_PLAYER_PACKET p;
+	p.id = c_id;
+	p.size = sizeof(SC_REMOVE_PLAYER_PACKET);
+	p.type = SC_REMOVE_PLAYER;
+
 	do_send(&p);
 }
 
@@ -142,35 +179,56 @@ void process_packet(int c_id, char* packet)
 		clients[c_id]._s_state = ST_INGAME;
 		clients[c_id]._sl.unlock();
 
+		clients[c_id].x = rand() % W_WIDTH;
+		clients[c_id].y = rand() % W_HEIGHT;
+
 		for (auto& pl : clients) {
-			if (pl._id == c_id) continue;
+			if (pl._id == c_id)
+			{
+				pl.send_move_packet(c_id, 0);
+				continue;
+			}
 			pl._sl.lock();
 			if (ST_INGAME != pl._s_state) {
 				pl._sl.unlock();
 				continue;
 			}
-			SC_ADD_PLAYER_PACKET add_packet;
-			add_packet.id = c_id;
-			strcpy_s(add_packet.name, p->name);
-			add_packet.size = sizeof(add_packet);
-			add_packet.type = SC_ADD_PLAYER;
-			add_packet.x = clients[c_id].x;
-			add_packet.y = clients[c_id].y;
-			pl.do_send(&add_packet);
+			if (RANGE >= distance(pl._id, c_id))
+			{
+				pl.vl.lock();
+				pl.view_list.insert(c_id);
+				pl.vl.unlock();
+				SC_ADD_PLAYER_PACKET add_packet;
+				add_packet.id = c_id;
+				strcpy_s(add_packet.name, p->name);
+				add_packet.size = sizeof(add_packet);
+				add_packet.type = SC_ADD_PLAYER;
+				add_packet.x = clients[c_id].x;
+				add_packet.y = clients[c_id].y;
+				pl.do_send(&add_packet);
+			}
+
 			pl._sl.unlock();
 		}
 		for (auto& pl : clients) {
 			if (pl._id == c_id) continue;
 			lock_guard<mutex> aa{ pl._sl };
 			if (ST_INGAME != pl._s_state) continue;
-			SC_ADD_PLAYER_PACKET add_packet;
-			add_packet.id = pl._id;
-			strcpy_s(add_packet.name, pl._name);
-			add_packet.size = sizeof(add_packet);
-			add_packet.type = SC_ADD_PLAYER;
-			add_packet.x = clients[c_id].x = rand() % W_WIDTH;
-			add_packet.y = clients[c_id].y = rand() % W_HEIGHT;
-			clients[c_id].do_send(&add_packet);
+
+			if (RANGE >= distance(pl._id, c_id))
+			{
+				pl.vl.lock();
+				pl.view_list.insert(c_id);
+				pl.vl.unlock();
+				SC_ADD_PLAYER_PACKET add_packet;
+				add_packet.id = pl._id;
+				strcpy_s(add_packet.name, pl._name);
+				add_packet.size = sizeof(add_packet);
+				add_packet.type = SC_ADD_PLAYER;
+				add_packet.x = pl.x;
+				add_packet.y = pl.y;
+				clients[c_id].do_send(&add_packet);
+			}
 		}
 		break;
 	}
@@ -189,7 +247,51 @@ void process_packet(int c_id, char* packet)
 		for (auto& pl : clients) {
 			lock_guard<mutex> aa{ pl._sl };
 			if (ST_INGAME == pl._s_state)
-				pl.send_move_packet(c_id, p->client_time);
+			{
+				if (pl._id == c_id)
+				{
+					pl.send_move_packet(c_id, p->client_time);
+					continue;
+				}
+
+				if (RANGE >= distance(pl._id, c_id))
+				{
+					pl.vl.lock();
+					if (pl.view_list.find(c_id) == pl.view_list.end())
+					{
+						pl.view_list.insert(c_id);
+						pl.vl.unlock();
+						pl.add_player_packet(c_id);
+
+						clients[c_id].vl.lock();
+						clients[c_id].view_list.insert(pl._id);
+						clients[c_id].vl.unlock();
+						clients[c_id].add_player_packet(pl._id);
+					}
+					else
+						pl.vl.unlock();
+
+					pl.send_move_packet(c_id, p->client_time);
+				}
+
+				else
+				{
+					pl.vl.lock(); 
+					if (pl.view_list.find(c_id) != pl.view_list.end())
+					{
+						pl.view_list.erase(c_id);
+						pl.vl.unlock();
+						pl.remove_player_packet(c_id);
+
+						clients[c_id].vl.lock();
+						clients[c_id].view_list.erase(pl._id);
+						clients[c_id].vl.unlock();
+						clients[c_id].remove_player_packet(pl._id);
+					}
+					else
+						pl.vl.unlock();
+				}
+			}
 		}
 		break;
 	}
