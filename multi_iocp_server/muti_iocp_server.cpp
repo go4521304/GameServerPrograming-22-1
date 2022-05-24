@@ -2,14 +2,13 @@
 #include <array>
 #include <WS2tcpip.h>
 #include <MSWSock.h>
-#include <chrono>
+
 #include <thread>
 #include <vector>
 #include <mutex>
 #include <unordered_set>
 #include <queue>
-
-#include "protocol.h"
+#include <chrono>
 
 extern "C" {
 #include "include/lua.h"
@@ -19,29 +18,30 @@ extern "C" {
 
 #pragma comment (lib, "lua54.lib")
 
+#include "protocol.h"
+
+constexpr int RANGE = 3;
+
 #pragma comment(lib, "WS2_32.lib")
 #pragma comment(lib, "MSWSock.lib")
 using namespace std;
 
 enum EVENT_TYPE { EV_MOVE, EV_HEAL, EV_ATTACK };
-
-struct TIMER_EVENT
-{
+struct TIMER_EVENT {
 	int object_id;
 	EVENT_TYPE ev;
 	chrono::system_clock::time_point act_time;
 	int target_id;
 
-	constexpr bool operator <(const TIMER_EVENT& _Left) const
+	constexpr bool operator < (const TIMER_EVENT& _Left) const
 	{
 		return (act_time > _Left.act_time);
 	}
+
 };
 
 priority_queue<TIMER_EVENT> timer_queue;
 mutex timer_l;
-
-constexpr int RANGE = 5;
 
 enum COMP_TYPE { OP_ACCEPT, OP_RECV, OP_SEND, OP_PLAYER_MOVE };
 class OVER_EXP {
@@ -80,14 +80,13 @@ public:
 	SOCKET _socket;
 	short	x, y;
 	char	_name[NAME_SIZE];
-	unordered_set<int> view_list;
-	mutex vl;
+	unordered_set <int> view_list;
+	mutex	vl;
 	lua_State* L;
-	mutex vm_l;
+	mutex	vm_l;
 
 	chrono::system_clock::time_point next_move_time;
 	int		_prev_remain;
-
 public:
 	SESSION()
 	{
@@ -129,9 +128,9 @@ public:
 		do_send(&p);
 	}
 	void send_move_packet(int c_id, int client_time);
-
 	void send_add_object(int c_id);
 	void send_remove_object(int c_id);
+	void send_chat_packet(int c_id, const char* mess);
 };
 
 array<SESSION, MAX_USER + NUM_NPC> clients;
@@ -170,8 +169,8 @@ void SESSION::send_add_object(int c_id)
 {
 	SC_ADD_PLAYER_PACKET p;
 	p.id = c_id;
-	p.size = sizeof(SC_ADD_PLAYER);
-	p.type = SC_MOVE_PLAYER;
+	p.size = sizeof(SC_ADD_PLAYER_PACKET);
+	p.type = SC_ADD_PLAYER;
 	p.x = clients[c_id].x;
 	p.y = clients[c_id].y;
 	strcpy_s(p.name, clients[c_id]._name);
@@ -184,10 +183,18 @@ void SESSION::send_remove_object(int c_id)
 	p.id = c_id;
 	p.size = sizeof(SC_REMOVE_PLAYER_PACKET);
 	p.type = SC_REMOVE_PLAYER;
-
 	do_send(&p);
 }
 
+void SESSION::send_chat_packet(int c_id, const char* mess)
+{
+	SC_CHAT_PACKET p;
+	p.id = c_id;
+	p.size = sizeof(SC_CHAT_PACKET) - sizeof(p.mess) + strlen(mess) + 1;
+	p.type = SC_CHAT;
+	strcpy_s(p.mess, mess);
+	do_send(&p);
+}
 
 void disconnect(int c_id);
 int get_new_client_id()
@@ -228,30 +235,20 @@ void process_packet(int c_id, char* packet)
 		clients[c_id].x = 0;
 		clients[c_id].y = 0;
 
-		for (int i = 0; i < MAX_USER; ++i)
-		{
+		for (int i = 0; i < MAX_USER; ++i) {
 			auto& pl = clients[i];
-		}
-
-		for (auto& pl : clients) {
-			if (pl._id == c_id)
-			{
-				pl.send_move_packet(c_id, 0);
-				continue;
-			}
+			if (pl._id == c_id) continue;
 			pl._sl.lock();
 			if (ST_INGAME != pl._s_state) {
 				pl._sl.unlock();
 				continue;
 			}
-			if (RANGE >= distance(pl._id, c_id))
-			{
+			if (RANGE >= distance(c_id, pl._id)) {
 				pl.vl.lock();
 				pl.view_list.insert(c_id);
 				pl.vl.unlock();
 				pl.send_add_object(c_id);
 			}
-
 			pl._sl.unlock();
 		}
 		for (auto& pl : clients) {
@@ -259,12 +256,11 @@ void process_packet(int c_id, char* packet)
 			lock_guard<mutex> aa{ pl._sl };
 			if (ST_INGAME != pl._s_state) continue;
 
-			if (RANGE >= distance(pl._id, c_id))
-			{
-				pl.vl.lock();
-				pl.view_list.insert(c_id);
-				pl.vl.unlock();
-				pl.send_add_object(c_id);
+			if (RANGE >= distance(pl._id, c_id)) {
+				clients[c_id].vl.lock();
+				clients[c_id].view_list.insert(pl._id);
+				clients[c_id].vl.unlock();
+				clients[c_id].send_add_object(pl._id);
 			}
 		}
 		break;
@@ -281,25 +277,20 @@ void process_packet(int c_id, char* packet)
 		}
 		clients[c_id].x = x;
 		clients[c_id].y = y;
-
-		for (int i = 0; i < MAX_USER; ++i)
-		{
+		for (int i = 0; i < MAX_USER; ++i) {
 			auto& pl = clients[i];
 			lock_guard<mutex> aa{ pl._sl };
 			if (ST_INGAME == pl._s_state)
-			{
 				pl.send_move_packet(c_id, p->client_time);
-			}
 		}
-		for (int i = 0; i < NUM_NPC; ++i)
-		{
+
+		for (int i = 0; i < NUM_NPC; ++i) {
 			int npc_id = MAX_USER + i;
-			if (distance(npc_id, c_id) < RANGE)
-			{
+			if (distance(npc_id, c_id) < RANGE) {
 				auto ex_over = new OVER_EXP;
 				ex_over->_comp_type = OP_PLAYER_MOVE;
 				ex_over->target_id = c_id;
-				PostQueuedCompletionStatus(g_h_iocp, 1, npc_id, ex_over);
+				PostQueuedCompletionStatus(g_h_iocp, 1, npc_id, &ex_over->_over);
 			}
 		}
 		break;
@@ -346,15 +337,16 @@ void do_worker()
 		if (FALSE == ret) {
 			if (ex_over->_comp_type == OP_ACCEPT) cout << "Accept Error";
 			else {
-				cout << "GQCS Error on client[" << client_id << "]\n";
-				disconnect(client_id);
+				cout << "GQCS Error on client[" << key << "]\n";
+				disconnect(static_cast<int>(key));
 				if (ex_over->_comp_type == OP_SEND) delete ex_over;
 				continue;
 			}
 		}
 
 		switch (ex_over->_comp_type) {
-		case OP_ACCEPT: {
+		case OP_ACCEPT:
+		{
 			SOCKET c_socket = reinterpret_cast<SOCKET>(ex_over->_wsabuf.buf);
 			int client_id = get_new_client_id();
 			if (client_id != -1) {
@@ -369,7 +361,8 @@ void do_worker()
 				clients[client_id].do_recv();
 				c_socket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
 			}
-			else {
+			else
+			{
 				cout << "Max user exceeded.\n";
 			}
 			ZeroMemory(&ex_over->_over, sizeof(ex_over->_over));
@@ -378,30 +371,45 @@ void do_worker()
 			AcceptEx(g_s_socket, c_socket, ex_over->_send_buf, 0, addr_size + 16, addr_size + 16, 0, &ex_over->_over);
 			break;
 		}
-		case OP_RECV: {
+		case OP_RECV:
+		{
 			if (0 == num_bytes) disconnect(client_id);
-			int remain_data = num_bytes + clients[client_id]._prev_remain;
+			int remain_data = num_bytes + clients[key]._prev_remain;
 			char* p = ex_over->_send_buf;
-			while (remain_data > 0) {
+			while (remain_data > 0)
+			{
 				int packet_size = p[0];
-				if (packet_size <= remain_data) {
-					process_packet(client_id, p);
+				if (packet_size <= remain_data)
+				{
+					process_packet(static_cast<int>(key), p);
 					p = p + packet_size;
 					remain_data = remain_data - packet_size;
 				}
 				else break;
 			}
-			clients[client_id]._prev_remain = remain_data;
-			if (remain_data > 0) {
+			clients[key]._prev_remain = remain_data;
+			if (remain_data > 0)
+			{
 				memcpy(ex_over->_send_buf, p, remain_data);
 			}
-			clients[client_id].do_recv();
+			clients[key].do_recv();
 			break;
 		}
 		case OP_SEND:
 			if (0 == num_bytes) disconnect(client_id);
 			delete ex_over;
 			break;
+
+		case OP_PLAYER_MOVE: {
+			auto L = clients[client_id].L;
+			clients[client_id].vm_l.lock();
+			lua_getglobal(L, "event_player_move");
+			lua_pushnumber(L, ex_over->target_id);
+			lua_pcall(L, 1, 0, 0);
+			clients[client_id].vm_l.unlock();
+		}
+						   break;
+
 		}
 	}
 }
@@ -411,13 +419,10 @@ void move_npc(int npc_id)
 	short x = clients[npc_id].x;
 	short y = clients[npc_id].y;
 	unordered_set<int> old_vl;
-	for (int i = 0; i < MAX_USER; ++i)
-	{
+	for (int i = 0; i < MAX_USER; ++i) {
 		if (clients[i]._s_state != ST_INGAME) continue;
 		if (distance(npc_id, i) <= RANGE) old_vl.insert(i);
-
 	}
-
 	switch (rand() % 4) {
 	case 0: if (y > 0) y--; break;
 	case 1: if (y < W_HEIGHT - 1) y++; break;
@@ -434,58 +439,44 @@ void move_npc(int npc_id)
 	clients[npc_id].y = y;
 
 	unordered_set<int> new_vl;
-	for (int i = 0; i < MAX_USER; ++i)
-	{
+	for (int i = 0; i < MAX_USER; ++i) {
 		if (clients[i]._s_state != ST_INGAME) continue;
 		if (distance(npc_id, i) <= RANGE) new_vl.insert(i);
-
 	}
 
-	for (auto p_id : new_vl)
-	{
+	for (auto p_id : new_vl) {
 		clients[p_id].vl.lock();
-		if (0 == clients[p_id].view_list.count(npc_id))
-		{
+		if (0 == clients[p_id].view_list.count(npc_id)) {
 			clients[p_id].view_list.insert(npc_id);
 			clients[p_id].vl.unlock();
 			clients[p_id].send_add_object(npc_id);
 		}
-		else
-		{
+		else {
 			clients[p_id].vl.unlock();
 			clients[p_id].send_move_packet(npc_id, 0);
-
 		}
 	}
-
-	for (auto p_id : old_vl)
-	{
-		if (0 == new_vl.count(p_id))
-		{
+	for (auto p_id : old_vl) {
+		if (0 == new_vl.count(p_id)) {
 			clients[p_id].vl.lock();
-			if (clients[p_id].view_list.count(npc_id) == 1)
-			{
+			if (clients[p_id].view_list.count(npc_id) == 1) {
 				clients[p_id].view_list.erase(npc_id);
 				clients[p_id].vl.unlock();
-				clients[p_id].send_add_object(p_id);
+				clients[p_id].send_remove_object(npc_id);
 			}
 			else
 				clients[p_id].vl.unlock();
-
 		}
 	}
 }
 
 void do_ai_ver_1()
 {
-	for (;;)
-	{
+	for (;;) {
 		auto start_t = chrono::system_clock::now();
-		for (int i = 0; i < NUM_NPC; ++i)
-		{
+		for (int i = 0; i < NUM_NPC; ++i) {
 			int npc_id = i + MAX_USER;
-			if (start_t > clients[npc_id].next_move_time)
-			{
+			if (start_t > clients[npc_id].next_move_time) {
 				move_npc(npc_id);
 				clients[npc_id].next_move_time = start_t + chrono::seconds(1);
 			}
@@ -493,13 +484,11 @@ void do_ai_ver_1()
 	}
 }
 
-void do_ai_ver_heart_beat()
+void do_ai_ver_heat_beat()
 {
-	for (;;)
-	{
+	for (;;) {
 		auto start_t = chrono::system_clock::now();
-		for (int i = 0; i < NUM_NPC; ++i)
-		{
+		for (int i = 0; i < NUM_NPC; ++i) {
 			int npc_id = i + MAX_USER;
 			move_npc(npc_id);
 		}
@@ -543,12 +532,15 @@ int API_get_y(lua_State* L)
 	lua_pushnumber(L, y);
 	return 1;
 }
-
 void initialize_npc()
 {
-	for (int i = 0; i < NUM_NPC; ++i)
-	{
+	for (int i = 0; i < NUM_NPC + MAX_USER; ++i)
+		clients[i]._id = i;
+
+	cout << "NPC initialize Begin\n";
+	for (int i = 0; i < NUM_NPC; ++i) {
 		int npc_id = i + MAX_USER;
+		clients[npc_id]._s_state = ST_INGAME;
 		sprintf_s(clients[npc_id]._name, "M-%d", npc_id);
 		lua_State* L = luaL_newstate();
 		clients[npc_id].L = L;
@@ -564,14 +556,17 @@ void initialize_npc()
 		lua_register(L, "API_chat", API_SendMessage);
 		lua_register(L, "API_get_x", API_get_x);
 		lua_register(L, "API_get_y", API_get_y);
-
 	}
+	cout << "NPC initialize Complete\n";
 }
 
+void do_timer()
+{
+
+}
 int main()
 {
 	initialize_npc();
-
 
 	WSADATA WSAData;
 	WSAStartup(MAKEWORD(2, 2), &WSAData);
@@ -598,9 +593,8 @@ int main()
 	vector <thread> worker_threads;
 	for (int i = 0; i < 6; ++i)
 		worker_threads.emplace_back(do_worker);
-	thread ai_thread(do_ai_ver_heart_beat);
+	thread ai_thread{ do_ai_ver_heat_beat };
 	ai_thread.join();
-
 	for (auto& th : worker_threads)
 		th.join();
 	closesocket(g_s_socket);

@@ -17,6 +17,7 @@ constexpr char SC_LOGIN_INFO = 2;
 constexpr char SC_ADD_PLAYER = 3;
 constexpr char SC_REMOVE_PLAYER = 4;
 constexpr char SC_MOVE_PLAYER = 5;
+constexpr char SC_CHAT = 6;
 
 
 #pragma pack (push, 1)
@@ -40,7 +41,7 @@ struct SC_LOGIN_INFO_PACKET
 {
 	unsigned char	size;
 	char			type;
-	short			id;
+	int				id;
 	short			x, y;
 };
 
@@ -48,7 +49,7 @@ struct SC_ADD_PLAYER_PACKET
 {
 	unsigned char	size;
 	char			type;
-	short			id;
+	int				id;
 	char			name[NAME_SIZE];
 	short			x, y;
 };
@@ -57,16 +58,24 @@ struct SC_REMOVE_PLAYER_PACKET
 {
 	unsigned char	size;
 	char			type;
-	short			id;
+	int				id;
 };
 
 struct SC_MOVE_PLAYER_PACKET
 {
 	unsigned char	size;
 	char			type;
-	short			id;
+	int				id;
 	short			x, y;
 	unsigned int client_time;
+};
+
+struct SC_CHAT_PACKET 
+{
+	unsigned char size;
+	char type;
+	int	 id;
+	char mess[256];
 };
 
 #pragma pack (pop)
