@@ -434,6 +434,7 @@ FodyWeavers.xsd
 *.sln.iml
 
 !/client_sample/lib/*
+!/multi_iocp_server/*.lib
 
 ### VisualStudio Patch ###
 # Additional files built by Visual Studio
