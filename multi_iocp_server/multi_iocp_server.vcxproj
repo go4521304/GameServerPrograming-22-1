@@ -144,6 +144,12 @@
   <ItemGroup>
     <ClInclude Include="protocol.h" />
   </ItemGroup>
+  <ItemGroup>
+    <Library Include="..\..\..\..\source\repos\lua\lua\lua54.lib" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="hello.lua" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

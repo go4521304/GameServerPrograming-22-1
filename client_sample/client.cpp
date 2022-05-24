@@ -2,6 +2,7 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
 #include <iostream>
+#include <unordered_map>
 using namespace std;
 
 #ifdef _DEBUG
@@ -80,7 +81,11 @@ public:
 };
 
 OBJECT avatar;
+//unordered_map<int, OBJECT> players;
+//unordered_map<int, OBJECT> npcs;
+
 OBJECT players[MAX_USER];
+OBJECT npcs[NUM_NPC];
 
 OBJECT white_tile;
 OBJECT black_tile;
@@ -100,6 +105,9 @@ void client_initialize()
 	avatar.move(4, 4);
 	for (auto& pl : players) {
 		pl = OBJECT{ *pieces, 64, 0, 64, 64 };
+	}
+	for (auto& pl : npcs) {
+		pl = OBJECT{ *pieces, 0, 0, 64, 64 };
 	}
 }
 
@@ -137,9 +145,8 @@ void ProcessPacket(char* ptr)
 			players[id].show();
 		}
 		else {
-			//npc[id - NPC_START].x = my_packet->x;
-			//npc[id - NPC_START].y = my_packet->y;
-			//npc[id - NPC_START].attr |= BOB_ATTR_VISIBLE;
+			npcs[id - MAX_USER].move(my_packet->x, my_packet->y);
+			npcs[id - MAX_USER].show();
 		}
 		break;
 	}
@@ -156,8 +163,7 @@ void ProcessPacket(char* ptr)
 			players[other_id].move(my_packet->x, my_packet->y);
 		}
 		else {
-			//npc[other_id - NPC_START].x = my_packet->x;
-			//npc[other_id - NPC_START].y = my_packet->y;
+			npcs[other_id - MAX_USER].move(my_packet->x, my_packet->y);
 		}
 		break;
 	}
@@ -173,7 +179,7 @@ void ProcessPacket(char* ptr)
 			players[other_id].hide();
 		}
 		else {
-			//		npc[other_id - NPC_START].attr &= ~BOB_ATTR_VISIBLE;
+			npcs[other_id - MAX_USER].hide();
 		}
 		break;
 	}
@@ -239,6 +245,7 @@ void client_main()
 		}
 	avatar.draw();
 	for (auto& pl : players) pl.draw();
+	for (auto& pl : npcs) pl.draw();
 }
 
 void send_packet(void* packet)
