@@ -25,7 +25,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <Library Include="..\..\..\..\source\repos\lua\lua\lua54.lib">
+    <Library Include="lua54.lib">
       <Filter>리소스 파일</Filter>
     </Library>
   </ItemGroup>

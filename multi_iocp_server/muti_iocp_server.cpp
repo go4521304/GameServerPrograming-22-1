@@ -190,11 +190,12 @@ void SESSION::send_chat_packet(int c_id, const char* mess)
 {
 	SC_CHAT_PACKET p;
 	p.id = c_id;
-	p.size = sizeof(SC_CHAT_PACKET) - sizeof(p.mess) + strlen(mess) + 1;
+	p.size = sizeof(SC_REMOVE_PLAYER_PACKET) - sizeof(p.mess) + strlen(mess) + 1;
 	p.type = SC_CHAT;
 	strcpy_s(p.mess, mess);
 	do_send(&p);
 }
+
 
 void disconnect(int c_id);
 int get_new_client_id()
@@ -345,8 +346,7 @@ void do_worker()
 		}
 
 		switch (ex_over->_comp_type) {
-		case OP_ACCEPT:
-		{
+		case OP_ACCEPT: {
 			SOCKET c_socket = reinterpret_cast<SOCKET>(ex_over->_wsabuf.buf);
 			int client_id = get_new_client_id();
 			if (client_id != -1) {
@@ -361,8 +361,7 @@ void do_worker()
 				clients[client_id].do_recv();
 				c_socket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
 			}
-			else
-			{
+			else {
 				cout << "Max user exceeded.\n";
 			}
 			ZeroMemory(&ex_over->_over, sizeof(ex_over->_over));
@@ -371,16 +370,13 @@ void do_worker()
 			AcceptEx(g_s_socket, c_socket, ex_over->_send_buf, 0, addr_size + 16, addr_size + 16, 0, &ex_over->_over);
 			break;
 		}
-		case OP_RECV:
-		{
+		case OP_RECV: {
 			if (0 == num_bytes) disconnect(client_id);
 			int remain_data = num_bytes + clients[key]._prev_remain;
 			char* p = ex_over->_send_buf;
-			while (remain_data > 0)
-			{
+			while (remain_data > 0) {
 				int packet_size = p[0];
-				if (packet_size <= remain_data)
-				{
+				if (packet_size <= remain_data) {
 					process_packet(static_cast<int>(key), p);
 					p = p + packet_size;
 					remain_data = remain_data - packet_size;
@@ -388,8 +384,7 @@ void do_worker()
 				else break;
 			}
 			clients[key]._prev_remain = remain_data;
-			if (remain_data > 0)
-			{
+			if (remain_data > 0) {
 				memcpy(ex_over->_send_buf, p, remain_data);
 			}
 			clients[key].do_recv();
@@ -399,7 +394,6 @@ void do_worker()
 			if (0 == num_bytes) disconnect(client_id);
 			delete ex_over;
 			break;
-
 		case OP_PLAYER_MOVE: {
 			auto L = clients[client_id].L;
 			clients[client_id].vm_l.lock();
@@ -407,11 +401,11 @@ void do_worker()
 			lua_pushnumber(L, ex_over->target_id);
 			lua_pcall(L, 1, 0, 0);
 			clients[client_id].vm_l.unlock();
+			delete ex_over;
 		}
 						   break;
-
-		}
-	}
+		} //SWITCH
+	} // WHILE
 }
 
 void move_npc(int npc_id)
@@ -491,6 +485,8 @@ void do_ai_ver_heat_beat()
 		for (int i = 0; i < NUM_NPC; ++i) {
 			int npc_id = i + MAX_USER;
 			move_npc(npc_id);
+			lua_getglobal(clients[npc_id].L, "event_npc_check");
+			lua_pcall(clients[npc_id].L, 0, 0, 0);
 		}
 		auto end_t = chrono::system_clock::now();
 		auto ai_t = end_t - start_t;
@@ -536,8 +532,7 @@ void initialize_npc()
 {
 	for (int i = 0; i < NUM_NPC + MAX_USER; ++i)
 		clients[i]._id = i;
-
-	cout << "NPC initialize Begin\n";
+	cout << "NPC initialize Begin.\n";
 	for (int i = 0; i < NUM_NPC; ++i) {
 		int npc_id = i + MAX_USER;
 		clients[npc_id]._s_state = ST_INGAME;
@@ -557,7 +552,7 @@ void initialize_npc()
 		lua_register(L, "API_get_x", API_get_x);
 		lua_register(L, "API_get_y", API_get_y);
 	}
-	cout << "NPC initialize Complete\n";
+	cout << "NPC Initialization complete.\n";
 }
 
 void do_timer()

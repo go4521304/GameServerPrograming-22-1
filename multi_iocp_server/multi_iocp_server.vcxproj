@@ -145,7 +145,7 @@
     <ClInclude Include="protocol.h" />
   </ItemGroup>
   <ItemGroup>
-    <Library Include="..\..\..\..\source\repos\lua\lua\lua54.lib" />
+    <Library Include="lua54.lib" />
   </ItemGroup>
   <ItemGroup>
     <None Include="hello.lua" />
